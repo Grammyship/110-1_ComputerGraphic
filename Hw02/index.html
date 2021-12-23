@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Watch out! There's a scorpion!</title>
+    </head>
+
+    <body onload="main()">
+        <canvas id="webgl" width = "400" height = "400">
+            Please use a browser that support "canvas"
+        </canvas>
+        <h1>Watch out! There's a scorpion!</h1>
+        <h4>You can move it away, make it bigger or smaller!<br>
+            Don't worry about its pliers(鉗子), they're wearing a pair of boxing gloves so they won't clip you!<br>
+            You can also move its tail, but remember not to stab yourself!</h4>
+        <h3>This is the work of 40847041S 朱自宇</h3>
+        <script src="cuon-matrix.js"></script>
+        <script src="WebGL.js"></script>
+        <div class="slidecontainer0">
+            Move_X: <input type="range" min="-100" max="100" value="0" class="slider" id="Move_X">
+            Move_Y: <input type="range" min="-100" max="100" value="0" class="slider" id="Move_Y">
+            Modify_Size:<input type="range" min="1" max="100" value="50" class="slider" id="jointForSize">
+        </div>
+        <div class="slidecontainer1">
+            Strong_Tail Rotation:<input type="range" min="-15" max="45" value="0" class="slider" id="jointForTail">
+            Small_Tail Rotation:<input type="range" min="-45" max="60" value="0" class="slider" id="jointForTail2">
+            Sting Rotation:<input type="range" min="-30" max="30" value="0" class="slider" id="jointForSting">
+        </div>
+    </body>
+</html>
+
+
