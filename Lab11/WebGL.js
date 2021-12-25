@@ -1,3 +1,24 @@
+var VSHADER_SOURCE_ENVCUBE = `
+  attribute vec4 a_Position;
+  varying vec4 v_Position;
+  void main() {
+    v_Position = a_Position;
+    gl_Position = a_Position;
+  } 
+`;
+
+var FSHADER_SOURCE_ENVCUBE = `
+  precision mediump float;
+  uniform samplerCube u_envCubeMap;
+  uniform mat4 u_viewDirectionProjectionInverse;
+  varying vec4 v_Position;
+  void main() {
+    vec4 t = u_viewDirectionProjectionInverse * v_Position;
+    gl_FragColor = textureCube(u_envCubeMap, normalize(t.xyz / t.w));
+  }
+`;
+
+
 var VSHADER_SOURCE = `
     attribute vec4 a_Position;
     attribute vec4 a_Normal;
@@ -197,7 +218,7 @@ async function main(){
     sphereObj = await loadOBJtoCreateVBO('sphere.obj');
     sonicObj = await loadOBJtoCreateVBO('sonic.obj');
     marioObj = await loadOBJtoCreateVBO('mario.obj');
-    quadObj = await loadOBJtoCreateVBO('quad.obj');
+    //quadObj = await loadOBJtoCreateVBO('quad.obj');
 
     program = compileShader(gl, VSHADER_SOURCE, FSHADER_SOURCE);
     program.a_Position = gl.getAttribLocation(program, 'a_Position'); 
@@ -226,6 +247,29 @@ async function main(){
 
     fbo = initFrameBufferForCubemapRendering(gl);
 
+
+    // for cubemap
+    var quad = new Float32Array(
+      [
+        -1, -1, 1,
+         1, -1, 1,
+        -1,  1, 1,
+        -1,  1, 1,
+         1, -1, 1,
+         1,  1, 1
+      ]); //just a quad
+    programEnvCube = compileShader(gl, VSHADER_SOURCE_ENVCUBE, FSHADER_SOURCE_ENVCUBE);
+    programEnvCube.a_Position = gl.getAttribLocation(programEnvCube, 'a_Position'); 
+    programEnvCube.u_envCubeMap = gl.getUniformLocation(programEnvCube, 'u_envCubeMap'); 
+    programEnvCube.u_viewDirectionProjectionInverse = 
+            gl.getUniformLocation(programEnvCube, 'u_viewDirectionProjectionInverse'); 
+
+    quadObj = initVertexBufferForLaterUse(gl, quad);
+
+    cubeMapTex = initCubeTexture("pos-x.jpg", "neg-x.jpg", "pos-y.jpg", "neg-y.jpg", 
+                                      "pos-z.jpg", "neg-z.jpg", 512, 512)
+
+
     canvas.onmousedown = function(ev){mouseDown(ev)};
     canvas.onmousemove = function(ev){mouseMove(ev)};
     canvas.onmouseup = function(ev){mouseUp(ev)};
@@ -240,12 +284,12 @@ async function main(){
 }
 
 function draw(){
+  drawEnvMap();
   renderCubeMap(0, 0, 0);
 
+  gl.useProgram(program);
   gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(0.4,0.4,0.4,1);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.enable(gl.DEPTH_TEST);
+
 
   let rotateMatrix = new Matrix4();
   rotateMatrix.setRotate(angleY, 1, 0, 0);//for mouse rotation
@@ -267,6 +311,50 @@ function draw(){
   mdlMatrix.setScale(0.5, 0.5, 0.5);
   drawObjectWithDynamicReflection(sphereObj, mdlMatrix, vpMatrix, 0.95, 0.85, 0.4);
 }
+
+
+
+function drawEnvMap(){
+  gl.clearColor(0.4,0.4,0.4,1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+
+
+  let rotateMatrix = new Matrix4();
+  rotateMatrix.setRotate(angleY, 1, 0, 0);//for mouse rotation
+  rotateMatrix.rotate(angleX, 0, 1, 0);//for mouse rotation
+  var viewDir= new Vector3([cameraDirX, cameraDirY, cameraDirZ]);
+  var newViewDir = rotateMatrix.multiplyVector3(viewDir);
+
+  var vpFromCamera = new Matrix4();
+  vpFromCamera.setPerspective(60, 1, 1, 15);
+  var viewMatrixRotationOnly = new Matrix4();
+  viewMatrixRotationOnly.lookAt(cameraX, cameraY, cameraZ, 
+                                cameraX + newViewDir.elements[0], 
+                                cameraY + newViewDir.elements[1], 
+                                cameraZ + newViewDir.elements[2], 
+                                0, 1, 0);
+  viewMatrixRotationOnly.elements[12] = 0; //ignore translation
+  viewMatrixRotationOnly.elements[13] = 0;
+  viewMatrixRotationOnly.elements[14] = 0;
+  vpFromCamera.multiply(viewMatrixRotationOnly);
+  var vpFromCameraInverse = vpFromCamera.invert();
+
+  //quad
+  gl.useProgram(programEnvCube);
+  gl.depthFunc(gl.LEQUAL);
+  gl.uniformMatrix4fv(programEnvCube.u_viewDirectionProjectionInverse, 
+                      false, vpFromCameraInverse.elements);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubeMapTex);
+  gl.uniform1i(programEnvCube.u_envCubeMap, 0);
+  initAttributeVariable(gl, programEnvCube.a_Position, quadObj.vertexBuffer);
+  gl.drawArrays(gl.TRIANGLES, 0, quadObj.numVertices);
+}
+
+
+
+
 
 function drawRegularObjects(vpMatrix){
   let mdlMatrix = new Matrix4();
@@ -504,6 +592,64 @@ function parseOBJ(text) {
 }
 
 
+
+
+function initCubeTexture(posXName, negXName, posYName, negYName, 
+                         posZName, negZName, imgWidth, imgHeight)
+{
+  var texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+
+  const faceInfos = [
+    {
+      target: gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+      fName: posXName,
+    },
+    {
+      target: gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+      fName: negXName,
+    },
+    {
+      target: gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+      fName: posYName,
+    },
+    {
+      target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+      fName: negYName,
+    },
+    {
+      target: gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+      fName: posZName,
+    },
+    {
+      target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+      fName: negZName,
+    },
+  ];
+  faceInfos.forEach((faceInfo) => {
+    const {target, fName} = faceInfo;
+    // setup each face so it's immediately renderable
+    gl.texImage2D(target, 0, gl.RGBA, imgWidth, imgHeight, 0, 
+                  gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    var image = new Image();
+    image.onload = function(){
+      gl.bindTexture(gl.TEXTURE_CUBE_MAP, texture);
+      gl.texImage2D(target, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+    };
+    image.src = fName;
+  });
+  gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+
+  return texture;
+}
+
+
+
+
+
 function mouseDown(ev){ 
     var x = ev.clientX;
     var y = ev.clientY;
@@ -613,11 +759,41 @@ function renderCubeMap(camX, camY, camZ)
   gl.useProgram(program);
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.viewport(0, 0, offScreenWidth, offScreenHeight);
-  gl.clearColor(0.4, 0.4, 0.4,1);
+
   for (var side = 0; side < 6;side++){
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, 
                             gl.TEXTURE_CUBE_MAP_POSITIVE_X+side, fbo.texture, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+
+    var vpFromCamera = new Matrix4();
+    vpFromCamera.setPerspective(90, 1, 1, 100);
+    var viewMatrixRotationOnly = new Matrix4();
+    viewMatrixRotationOnly.lookAt(camX, camY, camZ,   
+                    camX + ENV_CUBE_LOOK_DIR[side][0], 
+                    camY + ENV_CUBE_LOOK_DIR[side][1],
+                    camZ + ENV_CUBE_LOOK_DIR[side][2], 
+                    ENV_CUBE_LOOK_UP[side][0],
+                    ENV_CUBE_LOOK_UP[side][1],
+                    ENV_CUBE_LOOK_UP[side][2]);
+    viewMatrixRotationOnly.elements[12] = 0; //ignore translation
+    viewMatrixRotationOnly.elements[13] = 0;
+    viewMatrixRotationOnly.elements[14] = 0;
+    vpFromCamera.multiply(viewMatrixRotationOnly);
+    var vpFromCameraInverse = vpFromCamera.invert();
+
+
+    //quad
+    gl.useProgram(programEnvCube);
+    gl.depthFunc(gl.LEQUAL);
+    gl.uniformMatrix4fv(programEnvCube.u_viewDirectionProjectionInverse, 
+                        false, vpFromCameraInverse.elements);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubeMapTex);
+    gl.uniform1i(programEnvCube.u_envCubeMap, 0);
+    initAttributeVariable(gl, programEnvCube.a_Position, quadObj.vertexBuffer);
+    gl.drawArrays(gl.TRIANGLES, 0, quadObj.numVertices);
+
 
     let vpMatrix = new Matrix4();
     vpMatrix.setPerspective(90, 1, 1, 100);
@@ -628,8 +804,10 @@ function renderCubeMap(camX, camY, camZ)
                     ENV_CUBE_LOOK_UP[side][0],
                     ENV_CUBE_LOOK_UP[side][1],
                     ENV_CUBE_LOOK_UP[side][2]);
-  
+
+
     drawRegularObjects(vpMatrix);
-  }
+  } 
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
 }
